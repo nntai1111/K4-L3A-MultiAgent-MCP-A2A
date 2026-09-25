@@ -32,6 +32,17 @@ async def run(
     result.evidence.append(timeline)
     result.facts.update(payment_facts(timeline.data.get("events", []), order))
 
+    payments = await fetch_evidence(
+        gateway,
+        trace,
+        actor=ACTOR,
+        case_id=state.case_id,
+        tool_name="get_order_payments",
+        order_id=state.order_id,
+    )
+    if payments is not None:
+        result.evidence.append(payments)
+
     if check_refunds:
         refunds = await fetch_evidence(
             gateway,

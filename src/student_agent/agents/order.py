@@ -42,6 +42,17 @@ async def run(state: CaseState, gateway: EvidenceGateway, trace: TraceWriter) ->
         return result
     result.evidence.append(items)
     result.facts.update(item_facts(items.data, result.facts))
+
+    sellers = await fetch_evidence(
+        gateway,
+        trace,
+        actor=ACTOR,
+        case_id=state.case_id,
+        tool_name="get_sellers",
+        order_id=state.order_id,
+    )
+    if sellers is not None:
+        result.evidence.append(sellers)
     return result
 
 

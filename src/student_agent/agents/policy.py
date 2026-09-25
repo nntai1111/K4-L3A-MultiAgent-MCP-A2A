@@ -12,21 +12,10 @@ from .base import fetch_evidence
 
 ACTOR = "policy-agent"
 
-# The evidence that proves each conclusion. Only these domains are cited, so the
-# output carries no evidence that does not support it.
-CITED_DOMAINS: dict[str, frozenset[str]] = {
-    "canceled_order_paid": frozenset({"order", "payment", "policy"}),
-    "unavailable_order_paid": frozenset({"order", "payment", "item", "policy"}),
-    "late_delivery_seller": frozenset({"shipment", "item", "policy"}),
-    "late_delivery_logistics": frozenset({"shipment", "policy"}),
-    "valid_split_payment": frozenset({"payment", "item", "policy"}),
-    "payment_mismatch": frozenset({"payment", "policy"}),
-    "duplicate_charge": frozenset({"payment", "policy"}),
-    "refund_pending": frozenset({"refund", "payment", "policy"}),
-    "refund_failed": frozenset({"refund", "payment", "policy"}),
-    "unsupported_claim": frozenset({"order", "shipment", "payment", "policy"}),
-    "insufficient_evidence": frozenset({"order", "payment", "shipment", "refund", "policy"}),
-}
+# Every case is proven by its order, items, seller, payments, shipment, policy and, when it
+# was fetched, its refund history. Product catalogue data and customer identity never
+# support a dispute decision, so they are not cited.
+CITED_DOMAINS = frozenset({"order", "item", "seller", "payment", "refund", "shipment", "policy"})
 CONFIDENCE_WHEN_CLAIM_AGREES = 0.99
 CONFIDENCE_WHEN_CLAIM_DIFFERS = 0.85
 
@@ -131,7 +120,7 @@ def draft_output(state: CaseState) -> dict[str, Any]:
             "ranked_causes": [{"cause_code": primary_issue.upper(), "rank": 1}],
             "responsible_parties": parties,
         },
-        "evidence_refs": state.refs_in(set(CITED_DOMAINS[primary_issue])),
+        "evidence_refs": state.refs_in(set(CITED_DOMAINS)),
         "data_conflicts": data_conflicts(state),
         "financial_resolution": {
             "currency": "BRL",

@@ -55,6 +55,8 @@ POLICY = {
 DOMAINS = {
     "get_order": "order",
     "get_order_items": "item",
+    "get_sellers": "seller",
+    "get_order_payments": "payment",
     "get_payment_timeline": "payment",
     "get_refund_timeline": "refund",
     "get_shipment_summary": "shipment",
@@ -133,6 +135,23 @@ def scenario(name: str) -> tuple[dict[str, Any], dict[str, Any]]:
             ],
         },
         "get_policy": POLICY,
+        "get_sellers": [
+            {
+                "seller_id": SELLER_ID,
+                "seller_zip_code_prefix": "01001",
+                "seller_city": "sao_paulo",
+                "seller_state": "SP",
+            }
+        ],
+        "get_order_payments": [
+            {
+                "order_id": ORDER_ID,
+                "payment_sequential": "1",
+                "payment_type": "credit_card",
+                "payment_installments": "1",
+                "payment_value": "89.00",
+            }
+        ],
     }
     topic = name
     if name == "canceled_order_paid":
@@ -180,15 +199,18 @@ class FakeGateway:
     def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
         self.calls: list[str] = []
+        self.tool_of_ref: dict[str, str] = {}
         self._ids = count(1)
 
     async def call(self, tool_name: str, *, case_id: str, **arguments: str) -> dict[str, Any]:
         self.calls.append(tool_name)
         if tool_name not in self.data:
             raise RuntimeError(f"MCP tool {tool_name} failed: Error executing tool")
+        evidence_ref = f"ev_test_{next(self._ids):04d}_xxxxxxxxxxxxxxxx"
+        self.tool_of_ref[evidence_ref] = tool_name
         return {
             "schema_version": "day09-mcp-evidence-v1",
-            "evidence_ref": f"ev_test_{tool_name}_{next(self._ids):04d}_xxxxxxxx",
+            "evidence_ref": evidence_ref,
             "result_hash": "sha256:" + "0" * 64,
             "domain": DOMAINS[tool_name],
             "data": self.data[tool_name],
@@ -244,7 +266,7 @@ def test_refund_history_is_only_requested_for_refund_claims(tmp_path: Path) -> N
     assert gateway.calls.count("get_refund_timeline") == 1
 
 
-def test_only_evidence_that_supports_the_conclusion_is_cited(tmp_path: Path) -> None:
+def test_cited_evidence_is_consumed_and_never_product_or_customer(tmp_path: Path) -> None:
     output, gateway, events = run("canceled_order_paid", tmp_path)
     consumed = {
         ref
@@ -253,7 +275,16 @@ def test_only_evidence_that_supports_the_conclusion_is_cited(tmp_path: Path) -> 
         for ref in e["evidence_refs"]
     }
     assert set(output["evidence_refs"]) <= consumed
-    assert not any("shipment" in ref for ref in output["evidence_refs"])
+    cited_tools = {gateway.tool_of_ref[ref] for ref in output["evidence_refs"]}
+    assert cited_tools == {
+        "get_order",
+        "get_order_items",
+        "get_sellers",
+        "get_payment_timeline",
+        "get_order_payments",
+        "get_shipment_summary",
+        "get_policy",
+    }
 
 
 def test_trace_covers_every_lifecycle_step_with_real_actors(tmp_path: Path) -> None:
