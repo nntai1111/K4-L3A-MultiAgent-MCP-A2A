@@ -11,7 +11,9 @@ from ..trace import TraceWriter
 
 TOOL_ALLOWLIST: dict[str, frozenset[str]] = {
     "coordinator": frozenset(),
-    "order-agent": frozenset({"get_order", "get_order_items", "get_sellers"}),
+    "order-agent": frozenset(
+        {"get_order", "get_order_items", "get_sellers", "get_product_context"}
+    ),
     "payment-agent": frozenset(
         {"get_order_payments", "get_payment_timeline", "get_refund_timeline"}
     ),

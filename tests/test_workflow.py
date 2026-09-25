@@ -58,6 +58,7 @@ DOMAINS = {
     "get_order": "order",
     "get_order_items": "item",
     "get_sellers": "seller",
+    "get_product_context": "product",
     "get_order_payments": "payment",
     "get_payment_timeline": "payment",
     "get_refund_timeline": "refund",
@@ -143,6 +144,14 @@ def scenario(name: str) -> tuple[dict[str, Any], dict[str, Any]]:
                 "seller_zip_code_prefix": "01001",
                 "seller_city": "sao_paulo",
                 "seller_state": "SP",
+            }
+        ],
+        "get_product_context": [
+            {
+                "order_item_id": "item-1",
+                "product_id": "product-1",
+                "seller_id": SELLER_ID,
+                "category_name_english": "housewares",
             }
         ],
         "get_order_payments": [
@@ -268,7 +277,7 @@ def test_refund_history_is_only_requested_for_refund_claims(tmp_path: Path) -> N
     assert gateway.calls.count("get_refund_timeline") == 1
 
 
-def test_cited_evidence_is_consumed_and_never_product_or_customer(tmp_path: Path) -> None:
+def test_cited_evidence_is_consumed_and_covers_every_order_domain(tmp_path: Path) -> None:
     output, gateway, events = run("canceled_order_paid", tmp_path)
     consumed = {
         ref
@@ -286,6 +295,7 @@ def test_cited_evidence_is_consumed_and_never_product_or_customer(tmp_path: Path
         "get_order_payments",
         "get_shipment_summary",
         "get_policy",
+        "get_product_context",
     }
 
 

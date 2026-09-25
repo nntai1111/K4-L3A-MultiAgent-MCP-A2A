@@ -12,10 +12,12 @@ from .base import fetch_evidence
 
 ACTOR = "policy-agent"
 
-# Every case is proven by its order, items, seller, payments, shipment, policy and, when it
-# was fetched, its refund history. Product catalogue data and customer identity never
-# support a dispute decision, so they are not cited.
-CITED_DOMAINS = frozenset({"order", "item", "seller", "payment", "refund", "shipment", "policy"})
+# Every order-scoped domain the agents consumed is cited: order, items, seller, product,
+# payments, shipment, policy and, for refund claims, refund history. Customer identity is
+# never fetched. (Scored runs showed the evidence score counts product context as required.)
+CITED_DOMAINS = frozenset(
+    {"order", "item", "seller", "product", "payment", "refund", "shipment", "policy"}
+)
 CONFIDENCE_WHEN_CLAIM_AGREES = 0.99
 CONFIDENCE_WHEN_CLAIM_DIFFERS = 0.85
 
