@@ -53,17 +53,7 @@ async def run(state: CaseState, gateway: EvidenceGateway, trace: TraceWriter) ->
     )
     if sellers is not None:
         result.evidence.append(sellers)
-
-    products = await fetch_evidence(
-        gateway,
-        trace,
-        actor=ACTOR,
-        case_id=state.case_id,
-        tool_name="get_product_context",
-        order_id=state.order_id,
-    )
-    if products is not None:
-        result.evidence.append(products)
+    # get_product_context is not fetched: no decision reads it and no issue cites it.
     return result
 
 

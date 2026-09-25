@@ -32,16 +32,8 @@ async def run(
     result.evidence.append(timeline)
     result.facts.update(payment_facts(timeline.data.get("events", []), order))
 
-    payments = await fetch_evidence(
-        gateway,
-        trace,
-        actor=ACTOR,
-        case_id=state.case_id,
-        tool_name="get_order_payments",
-        order_id=state.order_id,
-    )
-    if payments is not None:
-        result.evidence.append(payments)
+    # get_order_payments is not fetched: its rows repeat the timeline, no decision reads
+    # them, and no issue cites them (see policy.CITED_TOOLS).
 
     if check_refunds:
         refunds = await fetch_evidence(

@@ -277,7 +277,7 @@ def test_refund_history_is_only_requested_for_refund_claims(tmp_path: Path) -> N
     assert gateway.calls.count("get_refund_timeline") == 1
 
 
-def test_canceled_order_cites_order_both_payment_tools_and_policy(tmp_path: Path) -> None:
+def test_canceled_order_cites_order_payment_timeline_and_policy(tmp_path: Path) -> None:
     output, gateway, events = run("canceled_order_paid", tmp_path)
     consumed = {
         ref
@@ -287,12 +287,27 @@ def test_canceled_order_cites_order_both_payment_tools_and_policy(tmp_path: Path
     }
     assert set(output["evidence_refs"]) <= consumed
     cited_tools = {gateway.tool_of_ref[ref] for ref in output["evidence_refs"]}
-    assert cited_tools == {
-        "get_order",
-        "get_payment_timeline",
-        "get_order_payments",
-        "get_policy",
-    }
+    assert cited_tools == {"get_order", "get_payment_timeline", "get_policy"}
+    assert "get_order_payments" not in gateway.calls
+    assert "get_product_context" not in gateway.calls
+
+
+@pytest.mark.parametrize(
+    ("name", "refund_verdict"),
+    [
+        ("canceled_order_paid", "supported"),
+        ("valid_split_payment", "unsupported"),
+        ("unsupported_claim", "unsupported"),
+    ],
+)
+def test_each_claim_gets_a_verdict_backed_by_the_cited_evidence(
+    name: str, refund_verdict: str, tmp_path: Path
+) -> None:
+    output, _, _ = run(name, tmp_path)
+    verdicts = {claim["claim_id"]: claim["verdict"] for claim in output["claim_assessments"]}
+    assert verdicts == {"c-a": "supported", "c-b": refund_verdict}
+    for claim in output["claim_assessments"]:
+        assert claim["evidence_refs"] == output["evidence_refs"]
 
 
 def test_trace_covers_every_lifecycle_step_with_real_actors(tmp_path: Path) -> None:

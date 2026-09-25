@@ -12,27 +12,32 @@ from .base import fetch_evidence
 
 ACTOR = "policy-agent"
 
-# The tools whose evidence proves each issue. Payment rows and the payment timeline are
-# scored as separate evidence, so payment issues cite both. Idea taken from the public fork
-# nguynkhanh04/K4-L3A-MultiAgent-MCP-A2A-Tung-Tung-Tung-Sahur (evidence_rules.py), whose
-# per-issue selection scores 89.5 on evidence against 83.6 for citing every tool.
-PAYMENT = frozenset({"get_payment_timeline", "get_order_payments"})
+# The tools whose evidence proves each issue. Every conclusion rests on the order record
+# and the policy; payment issues add the payment timeline (the payment rows repeat it and
+# are not cited). This is the selection used by the team's best submission (evidence
+# 91.30); the earlier table that also cited payment rows scored 78.72, citing every tool
+# scored 83.60.
+ORDER_PAYMENT_POLICY = frozenset({"get_order", "get_payment_timeline", "get_policy"})
 CITED_TOOLS: dict[str, frozenset[str]] = {
-    "canceled_order_paid": PAYMENT | {"get_order", "get_policy"},
-    "unavailable_order_paid": PAYMENT | {"get_order", "get_order_items", "get_policy"},
+    "canceled_order_paid": ORDER_PAYMENT_POLICY,
+    "unavailable_order_paid": ORDER_PAYMENT_POLICY | {"get_order_items", "get_sellers"},
     "late_delivery_seller": frozenset(
-        {"get_shipment_summary", "get_order", "get_order_items", "get_sellers", "get_policy"}
+        {"get_order", "get_order_items", "get_sellers", "get_shipment_summary", "get_policy"}
     ),
-    "late_delivery_logistics": frozenset({"get_shipment_summary", "get_order", "get_policy"}),
-    "valid_split_payment": PAYMENT | {"get_policy"},
-    "payment_mismatch": PAYMENT | {"get_policy"},
-    "duplicate_charge": PAYMENT | {"get_policy"},
-    "refund_pending": PAYMENT | {"get_refund_timeline", "get_policy"},
-    "refund_failed": PAYMENT | {"get_refund_timeline", "get_policy"},
-    "unsupported_claim": PAYMENT | {"get_order", "get_shipment_summary", "get_policy"},
-    "insufficient_evidence": PAYMENT
-    | {"get_order", "get_shipment_summary", "get_refund_timeline", "get_policy"},
+    "late_delivery_logistics": frozenset({"get_order", "get_shipment_summary", "get_policy"}),
+    "valid_split_payment": ORDER_PAYMENT_POLICY,
+    "payment_mismatch": ORDER_PAYMENT_POLICY,
+    "duplicate_charge": ORDER_PAYMENT_POLICY,
+    "refund_pending": ORDER_PAYMENT_POLICY | {"get_refund_timeline"},
+    "refund_failed": ORDER_PAYMENT_POLICY | {"get_refund_timeline"},
+    "unsupported_claim": frozenset({"get_order", "get_policy"}),
+    "insufficient_evidence": ORDER_PAYMENT_POLICY | {"get_shipment_summary", "get_refund_timeline"},
 }
+
+# The customer's request for their money back, asked alongside every complaint.
+REFUND_REQUEST_TOPIC = "requested_full_refund"
+MONEY_TOLERANCE_BRL = 0.005
+
 CONFIDENCE_WHEN_CLAIM_AGREES = 0.99
 CONFIDENCE_WHEN_CLAIM_DIFFERS = 0.85
 
@@ -116,15 +121,17 @@ def draft_output(state: CaseState) -> dict[str, Any]:
         ]
 
     agrees_with_claim = primary_issue in state.claim_topics[:1]
+    confidence = (
+        CONFIDENCE_WHEN_CLAIM_AGREES if agrees_with_claim else CONFIDENCE_WHEN_CLAIM_DIFFERS
+    )
+    evidence_refs = state.refs_from(set(CITED_TOOLS[primary_issue]))
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
         "case_id": state.case_id,
         "assessment": {
             "primary_issue": primary_issue,
             "case_status": case_status,
-            "confidence": CONFIDENCE_WHEN_CLAIM_AGREES
-            if agrees_with_claim
-            else CONFIDENCE_WHEN_CLAIM_DIFFERS,
+            "confidence": confidence,
         },
         "affected_entities": {
             "order_ids": [order_id],
@@ -133,11 +140,14 @@ def draft_output(state: CaseState) -> dict[str, Any]:
             "payment_references": [],
             "shipment_ids": [],
         },
+        "claim_assessments": claim_assessments(
+            state, primary_issue, refund, confidence, evidence_refs
+        ),
         "root_cause_analysis": {
             "ranked_causes": [{"cause_code": primary_issue.upper(), "rank": 1}],
             "responsible_parties": parties,
         },
-        "evidence_refs": state.refs_from(set(CITED_TOOLS[primary_issue])),
+        "evidence_refs": evidence_refs,
         "data_conflicts": data_conflicts(state),
         "financial_resolution": {
             "currency": "BRL",
@@ -150,6 +160,54 @@ def draft_output(state: CaseState) -> dict[str, Any]:
         },
         "resolution_actions": actions,
     }
+
+
+def claim_assessments(
+    state: CaseState,
+    primary_issue: str,
+    refund: float,
+    confidence: float,
+    evidence_refs: list[str],
+) -> list[dict[str, Any]]:
+    """A verdict on each thing the customer claimed, backed by the case's cited evidence.
+
+    The complaint itself is supported when the evidence reaches the same issue. The refund
+    request is supported when the policy refund covers everything captured on the order's
+    own timeline, partially supported when it covers less (a duplicate charge refunds one
+    of two captures), and unsupported when the policy grants nothing.
+    """
+    if primary_issue == "insufficient_evidence":
+        return [
+            {
+                "claim_id": claim["claim_id"],
+                "verdict": "insufficient_evidence",
+                "confidence": confidence,
+                "evidence_refs": list(evidence_refs),
+            }
+            for claim in state.case["customer_request"].get("claims", [])
+        ]
+    captured = float(state.facts("payment-agent").get("captured_total", 0.0) or 0.0)
+    assessments = []
+    for claim in state.case["customer_request"].get("claims", []):
+        topic = claim.get("topic")
+        if topic == REFUND_REQUEST_TOPIC:
+            if refund <= 0:
+                verdict = "unsupported"
+            elif refund + MONEY_TOLERANCE_BRL < captured:
+                verdict = "partially_supported"
+            else:
+                verdict = "supported"
+        else:
+            verdict = "supported" if topic == primary_issue else "unsupported"
+        assessments.append(
+            {
+                "claim_id": claim["claim_id"],
+                "verdict": verdict,
+                "confidence": confidence,
+                "evidence_refs": list(evidence_refs),
+            }
+        )
+    return assessments
 
 
 STALE_RECORD_CONFLICTS = (
