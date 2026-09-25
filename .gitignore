@@ -34,3 +34,6 @@ dist/*
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Lab handouts (contain the class registration code)
+*.docx
