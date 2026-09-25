@@ -1,0 +1,22 @@
+{
+  "team_member": "Hoang Quoc Viet",
+  "variant": "l3a",
+  "model": {
+    "name": "none",
+    "parameters": 0,
+    "note": "The scored pipeline is deterministic: every decision is computed from MCP evidence and the MCP policy by Python rules. No language model takes part in any output that is submitted."
+  },
+  "agents": [
+    "coordinator",
+    "order-agent",
+    "payment-agent",
+    "shipment-agent",
+    "policy-agent",
+    "verifier"
+  ],
+  "run": {
+    "command": "day09 run && day09 validate && day09 package --output dist/submission.zip",
+    "case_concurrency": 6,
+    "mcp_retry_policy": "timeouts retried at most 2 times; tool errors never retried"
+  }
+}

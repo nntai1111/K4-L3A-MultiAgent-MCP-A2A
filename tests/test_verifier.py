@@ -109,12 +109,12 @@ def codes(report: verifier.VerificationReport) -> set[str]:
     return {finding.code for finding in report.findings}
 
 
-def test_clean_output_passes_and_gets_the_clean_confidence() -> None:
+def test_clean_output_passes_and_keeps_its_proposed_confidence() -> None:
     draft = clean_output()
     report = verify(draft)
     assert report.decision_code == VERIFIED
     assert report.findings == []
-    assert report.output["assessment"]["confidence"] == CONFIDENCE_CLEAN
+    assert report.output["assessment"]["confidence"] == 0.9
     assert draft == clean_output(), "the draft must not be mutated"
 
 
@@ -153,7 +153,7 @@ def test_required_domain_is_cited_from_consumed_evidence() -> None:
     report = verify(draft)
     assert PAYMENT_REF in report.output["evidence_refs"]
     assert "REQUIRED_EVIDENCE_CITED" in codes(report)
-    assert report.output["assessment"]["confidence"] == CONFIDENCE_CLEAN
+    assert report.output["assessment"]["confidence"] == 0.9
 
 
 def test_required_domain_never_consumed_lowers_confidence() -> None:
@@ -229,14 +229,15 @@ def test_action_required_with_nothing_to_do_needs_investigation() -> None:
     assert report.output["assessment"]["case_status"] == "needs_investigation"
 
 
-def test_no_action_with_actions_is_flagged_but_kept() -> None:
+def test_no_action_keeps_its_documenting_action() -> None:
     draft = clean_output()
     draft["assessment"]["case_status"] = "no_action"
     draft["financial_resolution"]["refund_lines"] = []
     draft["financial_resolution"]["recommended_refund_brl"] = 0
+    draft["resolution_actions"] = ["document_no_action"]
     report = verify(draft)
-    assert "NO_ACTION_WITH_ACTIONS" in codes(report)
-    assert report.output["resolution_actions"] == ["refund_duplicate_charge"]
+    assert report.decision_code == VERIFIED
+    assert report.output["resolution_actions"] == ["document_no_action"]
 
 
 def test_insufficient_evidence_never_carries_a_refund() -> None:
@@ -293,7 +294,7 @@ def test_cause_ranks_are_renumbered_without_duplicates() -> None:
     ]
 
 
-def test_a_data_conflict_caps_confidence() -> None:
+def test_a_resolved_data_conflict_does_not_lower_confidence() -> None:
     draft = clean_output()
     draft["data_conflicts"] = [
         {
@@ -304,7 +305,7 @@ def test_a_data_conflict_caps_confidence() -> None:
         }
     ]
     report = verify(draft)
-    assert report.output["assessment"]["confidence"] == CONFIDENCE_DOUBTFUL
+    assert report.output["assessment"]["confidence"] == 0.9
 
 
 def test_case_id_and_unknown_fields_are_repaired() -> None:
@@ -357,8 +358,9 @@ def test_strict_mode_raises_instead_of_repairing(monkeypatch: pytest.MonkeyPatch
 def test_calibration_never_reports_certainty() -> None:
     for primary_issue in ("duplicate_charge", "insufficient_evidence"):
         for doubtful in (False, True):
-            assert 0 < calibrated_confidence(primary_issue, doubtful) < 1
-    assert calibrated_confidence("duplicate_charge", doubtful=True) < CONFIDENCE_CLEAN
+            assert 0 < calibrated_confidence(primary_issue, doubtful, proposed=1.0) < 1
+    assert calibrated_confidence("duplicate_charge", doubtful=True) == CONFIDENCE_DOUBTFUL
+    assert calibrated_confidence("duplicate_charge", doubtful=False) == CONFIDENCE_CLEAN
 
 
 def test_verify_and_trace_emits_verification_completed(tmp_path: Path) -> None:

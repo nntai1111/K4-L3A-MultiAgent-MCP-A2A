@@ -23,13 +23,14 @@ VERIFIED = "VERIFIED"
 REPAIRED = "REPAIRED"
 FALLBACK = "FALLBACK"
 
-# Calibration table (P4.4). The scorer pays 1 - (correct - confidence)^2, so each value is
-# the hit rate we expect in that evidence situation. Retune these from the public score.
-CONFIDENCE_CLEAN = 0.85
+# Calibration ceilings (P4.4). The scorer pays 1 - (correct - confidence)^2, so confidence
+# should equal the expected hit rate. The policy agent proposes a confidence; the verifier
+# only lowers it, to the ceiling for the evidence situation it found.
+CONFIDENCE_CLEAN = 0.99
 CONFIDENCE_DOUBTFUL = 0.60
 CONFIDENCE_INSUFFICIENT = 0.35
 CLAIM_CONFIDENCE_FLOOR = 0.05
-CLAIM_CONFIDENCE_CEILING = 0.95
+CLAIM_CONFIDENCE_CEILING = 0.99
 
 # A primary issue must cite evidence from these domains to stand.
 REQUIRED_DOMAINS: dict[str, frozenset[str]] = {
@@ -98,12 +99,16 @@ def strict_mode() -> bool:
     return os.getenv("DAY09_STRICT", "").strip() == "1"
 
 
-def calibrated_confidence(primary_issue: str, doubtful: bool) -> float:
+def calibrated_confidence(
+    primary_issue: str, doubtful: bool, proposed: float = CONFIDENCE_CLEAN
+) -> float:
     if primary_issue == "insufficient_evidence":
-        return CONFIDENCE_INSUFFICIENT
-    if doubtful:
-        return CONFIDENCE_DOUBTFUL
-    return CONFIDENCE_CLEAN
+        ceiling = CONFIDENCE_INSUFFICIENT
+    elif doubtful:
+        ceiling = CONFIDENCE_DOUBTFUL
+    else:
+        ceiling = CONFIDENCE_CLEAN
+    return round(min(max(float(proposed), CLAIM_CONFIDENCE_FLOOR), ceiling), 4)
 
 
 def fallback_output(case_id: str, evidence_domains: Mapping[str, str]) -> dict[str, Any]:
@@ -364,8 +369,6 @@ def _repair_money_and_status(output: dict[str, Any], findings: list[Finding]) ->
     elif assessment["case_status"] == "action_required" and line_total == 0 and not actions:
         findings.append(Finding("STATUS_SET_NEEDS_INVESTIGATION", "nothing_to_act_on"))
         assessment["case_status"] = "needs_investigation"
-    if assessment["case_status"] == "no_action" and actions:
-        findings.append(Finding("NO_ACTION_WITH_ACTIONS", str(len(actions))))
 
 
 def _repair_responsibility(output: dict[str, Any], findings: list[Finding]) -> None:
@@ -389,10 +392,10 @@ def _repair_responsibility(output: dict[str, Any], findings: list[Finding]) -> N
 
 def _set_confidence(output: dict[str, Any], findings: list[Finding]) -> None:
     assessment = output["assessment"]
-    doubtful = bool(output["data_conflicts"]) or any(
-        finding.lowers_confidence for finding in findings
+    doubtful = any(finding.lowers_confidence for finding in findings)
+    assessment["confidence"] = calibrated_confidence(
+        assessment["primary_issue"], doubtful, assessment["confidence"]
     )
-    assessment["confidence"] = calibrated_confidence(assessment["primary_issue"], doubtful)
     for claim in output.get("claim_assessments", []):
         confidence = min(
             max(float(claim["confidence"]), CLAIM_CONFIDENCE_FLOOR), CLAIM_CONFIDENCE_CEILING
