@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
+from student_agent.agents.base import GatewayUnavailable
 from student_agent.contracts import Contracts
+from student_agent.mcp_gateway import ToolError
 from student_agent.trace import TraceWriter
 from student_agent.workflow import solve_case
 
@@ -205,7 +207,7 @@ class FakeGateway:
     async def call(self, tool_name: str, *, case_id: str, **arguments: str) -> dict[str, Any]:
         self.calls.append(tool_name)
         if tool_name not in self.data:
-            raise RuntimeError(f"MCP tool {tool_name} failed: Error executing tool")
+            raise ToolError(f"MCP tool {tool_name} failed: Error executing tool")
         evidence_ref = f"ev_test_{next(self._ids):04d}_xxxxxxxxxxxxxxxx"
         self.tool_of_ref[evidence_ref] = tool_name
         return {
@@ -316,3 +318,15 @@ def test_a_missing_order_becomes_insufficient_evidence(tmp_path: Path) -> None:
     CONTRACTS.validate_output(output, "missing order")
     assert output["assessment"]["primary_issue"] == "insufficient_evidence"
     assert output["assessment"]["case_status"] == "needs_investigation"
+
+
+class DroppedConnectionGateway(FakeGateway):
+    async def call(self, tool_name: str, *, case_id: str, **arguments: str) -> dict[str, Any]:
+        raise ConnectionResetError("connection dropped")
+
+
+def test_a_dropped_connection_is_retried_not_answered(tmp_path: Path) -> None:
+    case, data = scenario("canceled_order_paid")
+    gateway = DroppedConnectionGateway(data)
+    with pytest.raises(GatewayUnavailable):
+        asyncio.run(solve_case(case, gateway, TraceWriter(tmp_path / "t.jsonl", CONTRACTS)))

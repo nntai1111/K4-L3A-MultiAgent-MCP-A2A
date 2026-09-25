@@ -46,6 +46,21 @@ class TraceWriter:
         }
         event.update({key: value for key, value in optional.items() if value is not None})
         self.contracts.validate_trace(event, "trace event")
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+        self.write_events([event])
         return event
+
+    def write_events(self, events: list[dict[str, Any]]) -> None:
+        with self.path.open("a", encoding="utf-8") as handle:
+            for event in events:
+                handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+class CaseTraceBuffer(TraceWriter):
+    """Holds one case's events until the case completes, so a retried case leaves no trace."""
+
+    def __init__(self, contracts: Contracts) -> None:
+        self.contracts = contracts
+        self.events: list[dict[str, Any]] = []
+
+    def write_events(self, events: list[dict[str, Any]]) -> None:
+        self.events.extend(events)

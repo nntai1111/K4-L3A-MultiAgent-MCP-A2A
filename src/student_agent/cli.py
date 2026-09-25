@@ -9,12 +9,13 @@ from pathlib import Path
 from .cases import load_case_set
 from .config import Settings
 from .contracts import Contracts
-from .mcp_gateway import connect_gateway
+from .mcp_gateway import EvidenceGateway, connect_gateway
 from .submission import package_submission, validate_artifacts
-from .trace import TraceWriter
+from .trace import CaseTraceBuffer, TraceWriter
 from .workflow import solve_case
 
-CASE_CONCURRENCY = 6
+CASE_CONCURRENCY = 4
+MAX_CONNECTIONS = 5
 
 
 def _root(value: str) -> Path:
@@ -41,30 +42,72 @@ async def _run(root: Path) -> None:
         stale.unlink()
     trace_path.unlink(missing_ok=True)
     trace = TraceWriter(trace_path, contracts)
+    pending = list(case_set.case_ids)
 
-    async with connect_gateway(settings.mcp_endpoint, settings.team_api_key, contracts) as gateway:
-        discovered_tools = await gateway.list_tools()
-        if not discovered_tools:
-            raise RuntimeError("MCP Gateway returned no tools")
-        concurrency = asyncio.Semaphore(CASE_CONCURRENCY)
+    # A dropped connection cancels the cases in flight; they rerun on the next connection.
+    # Each case's trace is written only once the case completes, so a rerun leaves no trace.
+    for connection in range(1, MAX_CONNECTIONS + 1):
+        try:
+            async with connect_gateway(
+                settings.mcp_endpoint, settings.team_api_key, contracts
+            ) as gateway:
+                if not await gateway.list_tools():
+                    raise RuntimeError("MCP Gateway returned no tools")
+                concurrency = asyncio.Semaphore(CASE_CONCURRENCY)
+                async with asyncio.TaskGroup() as cases:
+                    for case_id in list(pending):
+                        cases.create_task(
+                            _run_case(
+                                case_set.cases[case_id],
+                                gateway,
+                                contracts,
+                                trace,
+                                output_root,
+                                concurrency,
+                                pending,
+                            )
+                        )
+        except Exception as exc:  # noqa: BLE001 - a dropped connection is retried below
+            if not pending:
+                break
+            print(
+                f"connection {connection} lost ({type(exc).__name__}); "
+                f"{len(pending)} cases left, reconnecting",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(3 * connection)
+        if not pending:
+            break
+    if pending:
+        raise RuntimeError(f"{len(pending)} cases unfinished after {MAX_CONNECTIONS} connections")
 
-        async def run_case(case_id: str) -> None:
-            async with concurrency:
-                case = case_set.cases[case_id]
-                trace.emit(case_id=case_id, event_type="case_received", actor="coordinator")
-                output = await solve_case(case, gateway, trace)
-                contracts.validate_output(output, f"outputs/{case_id}.json")
-                if output.get("case_id") != case_id:
-                    raise ValueError(f"solver returned a mismatched case_id for {case_id}")
-                target = output_root / f"{case_id}.json"
-                temporary = target.with_suffix(".json.tmp")
-                temporary.write_text(
-                    json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-                )
-                temporary.replace(target)
-                trace.emit(case_id=case_id, event_type="case_finalized", actor="coordinator")
 
-        await asyncio.gather(*(run_case(case_id) for case_id in case_set.case_ids))
+async def _run_case(
+    case: dict,
+    gateway: EvidenceGateway,
+    contracts: Contracts,
+    trace: TraceWriter,
+    output_root: Path,
+    concurrency: asyncio.Semaphore,
+    pending: list[str],
+) -> None:
+    case_id = case["case_id"]
+    async with concurrency:
+        events = CaseTraceBuffer(contracts)
+        events.emit(case_id=case_id, event_type="case_received", actor="coordinator")
+        output = await solve_case(case, gateway, events)
+        contracts.validate_output(output, f"outputs/{case_id}.json")
+        if output.get("case_id") != case_id:
+            raise ValueError(f"solver returned a mismatched case_id for {case_id}")
+        target = output_root / f"{case_id}.json"
+        temporary = target.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        temporary.replace(target)
+        events.emit(case_id=case_id, event_type="case_finalized", actor="coordinator")
+        trace.write_events(events.events)
+        pending.remove(case_id)
 
 
 def parser() -> argparse.ArgumentParser:

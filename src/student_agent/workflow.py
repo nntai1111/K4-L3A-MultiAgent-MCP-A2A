@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .agents import order, payment, policy, shipment
+from .agents.base import GatewayUnavailable
 from .agents.verifier import fallback_output, verify_and_trace
 from .mcp_gateway import EvidenceGateway
 from .state import CaseState, SpecialistResult
@@ -67,6 +68,8 @@ async def solve_case(
             target="verifier",
             decision_code=state.results[policy.ACTOR].status.upper(),
         )
+    except GatewayUnavailable:
+        raise
     except Exception:  # noqa: BLE001 - the coordinator's safety net for this case only
         draft = fallback_output(state.case_id, state.evidence_domains())
 

@@ -12,6 +12,10 @@ from mcp.client.streamable_http import streamable_http_client
 from .contracts import Contracts
 
 
+class ToolError(RuntimeError):
+    """The MCP server ran the tool and reported that it has no result for these arguments."""
+
+
 class EvidenceGateway:
     def __init__(self, session: ClientSession, contracts: Contracts) -> None:
         self._session = session
@@ -31,7 +35,7 @@ class EvidenceGateway:
             message = " ".join(
                 block.text for block in result.content if getattr(block, "text", None)
             )
-            raise RuntimeError(f"MCP tool {tool_name} failed: {message or 'unknown error'}")
+            raise ToolError(f"MCP tool {tool_name} failed: {message or 'unknown error'}")
         evidence = getattr(result, "structuredContent", None)
         if evidence is None:
             evidence = getattr(result, "structured_content", None)

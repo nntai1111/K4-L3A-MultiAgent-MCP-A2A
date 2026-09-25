@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ..mcp_gateway import EvidenceGateway
+from ..mcp_gateway import EvidenceGateway, ToolError
 from ..state import Evidence
 from ..trace import TraceWriter
 
@@ -26,6 +26,10 @@ TIMEOUT_RETRIES = 2
 
 class ToolNotAllowed(PermissionError):
     pass
+
+
+class GatewayUnavailable(ConnectionError):
+    """The MCP connection failed; the case must be retried, never answered from missing data."""
 
 
 async def fetch_evidence(
@@ -52,12 +56,14 @@ async def fetch_evidence(
                 gateway.call(tool_name, case_id=case_id, **arguments), CALL_TIMEOUT_SECONDS
             )
             break
-        except TimeoutError:
-            if attempt == TIMEOUT_RETRIES:
-                return None
-            await asyncio.sleep(1.5 * (attempt + 1))
-        except (RuntimeError, ValueError):
+        except (ToolError, ValueError):
             return None
+        except TimeoutError as exc:
+            if attempt == TIMEOUT_RETRIES:
+                raise GatewayUnavailable(f"{tool_name} timed out") from exc
+            await asyncio.sleep(1.5 * (attempt + 1))
+        except Exception as exc:  # noqa: BLE001 - transport failures of any kind
+            raise GatewayUnavailable(f"{tool_name}: {type(exc).__name__}") from exc
     if response is None:
         return None
     evidence = Evidence(
