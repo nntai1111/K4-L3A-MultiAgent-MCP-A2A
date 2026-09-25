@@ -57,6 +57,14 @@ class CaseState:
             for item in result.evidence
         }
 
+    def refs_from(self, tools: set[str]) -> list[str]:
+        return [
+            item.evidence_ref
+            for result in self.results.values()
+            for item in result.evidence
+            if item.tool_name in tools
+        ]
+
     def refs_in(self, domains: set[str]) -> list[str]:
         return [
             item.evidence_ref

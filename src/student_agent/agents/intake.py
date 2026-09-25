@@ -51,7 +51,9 @@ _model_lock = threading.Lock()
 
 def _load() -> Any:
     global _agent, _load_attempted
-    if not _load_attempted:
+    with _model_lock:
+        if _load_attempted:
+            return _agent
         _load_attempted = True
         os.environ.setdefault("USE_TF", "0")
         os.environ.setdefault("TRANSFORMERS_NO_TF", "1")

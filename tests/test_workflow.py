@@ -277,7 +277,7 @@ def test_refund_history_is_only_requested_for_refund_claims(tmp_path: Path) -> N
     assert gateway.calls.count("get_refund_timeline") == 1
 
 
-def test_cited_evidence_is_consumed_and_covers_every_order_domain(tmp_path: Path) -> None:
+def test_canceled_order_cites_order_both_payment_tools_and_policy(tmp_path: Path) -> None:
     output, gateway, events = run("canceled_order_paid", tmp_path)
     consumed = {
         ref
@@ -289,13 +289,9 @@ def test_cited_evidence_is_consumed_and_covers_every_order_domain(tmp_path: Path
     cited_tools = {gateway.tool_of_ref[ref] for ref in output["evidence_refs"]}
     assert cited_tools == {
         "get_order",
-        "get_order_items",
-        "get_sellers",
         "get_payment_timeline",
         "get_order_payments",
-        "get_shipment_summary",
         "get_policy",
-        "get_product_context",
     }
 
 

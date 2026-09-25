@@ -12,12 +12,27 @@ from .base import fetch_evidence
 
 ACTOR = "policy-agent"
 
-# Every order-scoped domain the agents consumed is cited: order, items, seller, product,
-# payments, shipment, policy and, for refund claims, refund history. Customer identity is
-# never fetched. (Scored runs showed the evidence score counts product context as required.)
-CITED_DOMAINS = frozenset(
-    {"order", "item", "seller", "product", "payment", "refund", "shipment", "policy"}
-)
+# The tools whose evidence proves each issue. Payment rows and the payment timeline are
+# scored as separate evidence, so payment issues cite both. Idea taken from the public fork
+# nguynkhanh04/K4-L3A-MultiAgent-MCP-A2A-Tung-Tung-Tung-Sahur (evidence_rules.py), whose
+# per-issue selection scores 89.5 on evidence against 83.6 for citing every tool.
+PAYMENT = frozenset({"get_payment_timeline", "get_order_payments"})
+CITED_TOOLS: dict[str, frozenset[str]] = {
+    "canceled_order_paid": PAYMENT | {"get_order", "get_policy"},
+    "unavailable_order_paid": PAYMENT | {"get_order", "get_order_items", "get_policy"},
+    "late_delivery_seller": frozenset(
+        {"get_shipment_summary", "get_order", "get_order_items", "get_sellers", "get_policy"}
+    ),
+    "late_delivery_logistics": frozenset({"get_shipment_summary", "get_order", "get_policy"}),
+    "valid_split_payment": PAYMENT | {"get_policy"},
+    "payment_mismatch": PAYMENT | {"get_policy"},
+    "duplicate_charge": PAYMENT | {"get_policy"},
+    "refund_pending": PAYMENT | {"get_refund_timeline", "get_policy"},
+    "refund_failed": PAYMENT | {"get_refund_timeline", "get_policy"},
+    "unsupported_claim": PAYMENT | {"get_order", "get_shipment_summary", "get_policy"},
+    "insufficient_evidence": PAYMENT
+    | {"get_order", "get_shipment_summary", "get_refund_timeline", "get_policy"},
+}
 CONFIDENCE_WHEN_CLAIM_AGREES = 0.99
 CONFIDENCE_WHEN_CLAIM_DIFFERS = 0.85
 
@@ -122,7 +137,7 @@ def draft_output(state: CaseState) -> dict[str, Any]:
             "ranked_causes": [{"cause_code": primary_issue.upper(), "rank": 1}],
             "responsible_parties": parties,
         },
-        "evidence_refs": state.refs_in(set(CITED_DOMAINS)),
+        "evidence_refs": state.refs_from(set(CITED_TOOLS[primary_issue])),
         "data_conflicts": data_conflicts(state),
         "financial_resolution": {
             "currency": "BRL",
