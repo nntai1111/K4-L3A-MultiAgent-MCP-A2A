@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .agents import order, payment, policy, shipment
+from .agents import intake, order, payment, policy, shipment
 from .agents.base import GatewayUnavailable
 from .agents.verifier import fallback_output, verify_and_trace
 from .mcp_gateway import EvidenceGateway
@@ -23,8 +23,15 @@ async def solve_case(
     """
     state = CaseState(case)
     try:
+        message = case.get("customer_request", {}).get("message", "")
+        intake_attributes = await intake.classify(message, state.claim_topics)
         await _assign(
-            state, trace, order.ACTOR, "COLLECT_ORDER_EVIDENCE", order.run(state, gateway, trace)
+            state,
+            trace,
+            order.ACTOR,
+            "COLLECT_ORDER_EVIDENCE",
+            order.run(state, gateway, trace),
+            attributes=intake_attributes,
         )
         await _assign(
             state,
@@ -78,13 +85,21 @@ async def solve_case(
     )
 
 
-async def _assign(state: CaseState, trace: TraceWriter, actor: str, task: str, work) -> None:
+async def _assign(
+    state: CaseState,
+    trace: TraceWriter,
+    actor: str,
+    task: str,
+    work,
+    attributes: dict[str, Any] | None = None,
+) -> None:
     trace.emit(
         case_id=state.case_id,
         event_type="task_assigned",
         actor=COORDINATOR,
         target=actor,
         decision_code=task,
+        attributes=attributes,
     )
     result: SpecialistResult = await work
     if result.case_id != state.case_id:

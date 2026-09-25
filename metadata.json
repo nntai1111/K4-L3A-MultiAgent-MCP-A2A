@@ -2,9 +2,11 @@
   "team_member": "Hoang Quoc Viet",
   "variant": "l3a",
   "model": {
-    "name": "none",
-    "parameters": 0,
-    "note": "The scored pipeline is deterministic: every decision is computed from MCP evidence and the MCP policy by Python rules. No language model takes part in any output that is submitted."
+    "name": "convaiinnovations/laya-multilingual",
+    "parameters": 321908998,
+    "runs": "local, CPU (laya 0.3.20, torch 2.14.0+cpu)",
+    "used_for": "coordinator intake: classifies each complaint and flags prompt injection before evidence is fetched; recorded on the first task_assigned trace event",
+    "note": "Decisions, refunds and evidence are computed from MCP evidence and the MCP policy by deterministic rules; the model does not change any output field."
   },
   "agents": [
     "coordinator",
